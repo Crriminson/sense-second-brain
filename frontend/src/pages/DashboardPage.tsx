@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { ideaStore, Idea } from "../store/ideas";
+import { deleteAllNotes, fetchNotes, mapNoteToIdea } from "../api/data";
 import IdeaCard from "../components/IdeaCard";
 import DailyInsightPanel from "../components/DailyInsightPanel";
 import ConnectionsPanel from "../components/ConnectionsPanel";
@@ -133,17 +134,45 @@ function TabBar({
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const [ideas, setIdeas] = useState<Idea[]>(ideaStore.getAll());
+  const [ideas, setIdeas] = useState<Idea[]>([]);
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("timestamp");
   const [filterTag, setFilterTag] = useState<FilterTag>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>("ideas");
 
   useEffect(() => {
+    const load = async () => {
+      try {
+        const notes = await fetchNotes();
+        const mapped = notes.map(mapNoteToIdea);
+        ideaStore.clear();
+        mapped.forEach((idea) => ideaStore.add(idea));
+        setIdeas(mapped);
+      } catch (err) {
+        console.error("Failed to load notes from backend:", err);
+        setIdeas(ideaStore.getAll());
+      }
+    };
+
     const unsub = ideaStore.subscribe(() => {
       setIdeas(ideaStore.getAll());
     });
-    return unsub;
+
+    const onFocus = () => {
+      void load();
+    };
+    const timer = window.setInterval(() => {
+      void load();
+    }, 5000);
+
+    window.addEventListener("focus", onFocus);
+    load();
+
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+      unsub();
+    };
   }, []);
 
   const allTags = [...new Set(ideas.flatMap((i) => i.tags))].slice(0, 12);
@@ -182,8 +211,14 @@ export default function DashboardPage() {
           <div className="flex items-center gap-4">
             {ideas.length > 0 && (
               <button
-                onClick={() => {
+                onClick={async () => {
                   if (confirm("Clear all ideas? This cannot be undone.")) {
+                    try {
+                      const active = await fetchActiveWorkspace();
+                      await deleteAllNotes(active?.id);
+                    } catch (err) {
+                      console.error("Failed to clear backend notes:", err);
+                    }
                     ideaStore.clear();
                   }
                 }}

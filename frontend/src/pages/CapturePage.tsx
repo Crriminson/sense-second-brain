@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { processTranscript } from "../api/process";
 import { ideaStore, Idea } from "../store/ideas";
+import { createNote, fetchActiveWorkspace, mapNoteToIdea } from "../api/data";
 import MetaBalls from "../components/MetaBalls";
 
 type Status = "idle" | "recording" | "processing" | "success" | "error";
@@ -104,11 +105,20 @@ export default function CapturePage() {
 
     try {
       const structured = await processTranscript(fullText);
+      const active = await fetchActiveWorkspace();
+      const saved = await createNote({
+        raw_text: fullText,
+        summary: structured.summary,
+        tags: structured.tags,
+        workspace_id: active?.id,
+        source: "web",
+      });
       const idea: Idea = {
+        ...mapNoteToIdea(saved),
         ...structured,
-        id: crypto.randomUUID(),
+        id: saved.id,
         raw_transcript: fullText,
-        timestamp: new Date().toISOString(),
+        timestamp: saved.created_at,
       };
       ideaStore.add(idea);
       setStatus("success");

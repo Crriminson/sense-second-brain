@@ -1,8 +1,10 @@
 # config.py
 import os
 
-DB_PATH = os.getenv("DB_PATH", "second_brain.db")
-CHROMA_PATH = os.getenv("CHROMA_PATH", "./chroma_data")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+DB_PATH = os.getenv("DB_PATH", os.path.join(BASE_DIR, "second_brain.db"))
+CHROMA_PATH = os.getenv("CHROMA_PATH", os.path.join(BASE_DIR, "chroma_data"))
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq")
 LLM_URL = os.getenv("LLM_URL", "https://api.groq.com/openai/v1")
