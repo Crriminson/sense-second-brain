@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+pydantic
+sqlalchemy
+aiosqlite
+chromadb
+httpx
+websockets
+aiomqtt
+paho-mqtt
+requests
+numpy
+python-multipart
+sentence-transformers

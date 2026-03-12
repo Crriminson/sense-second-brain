@@ -1,10 +1,9 @@
-# database/connection.py
+# store/sql/connection.py
 import aiosqlite
 import uuid
 from datetime import datetime
 from contextlib import asynccontextmanager
-
-DB_PATH = "second_brain.db"
+from config import DB_PATH
 
 
 @asynccontextmanager
@@ -22,7 +21,6 @@ async def get_db():
 
 async def init_db():
     async with get_db() as db:
-
         await db.execute("""
             CREATE TABLE IF NOT EXISTS workspaces (
                 id TEXT PRIMARY KEY,
@@ -31,7 +29,6 @@ async def init_db():
                 created_at TEXT NOT NULL
             )
         """)
-
         await db.execute("""
             CREATE TABLE IF NOT EXISTS notes (
                 id TEXT PRIMARY KEY,
@@ -44,7 +41,6 @@ async def init_db():
                 FOREIGN KEY (workspace_id) REFERENCES workspaces(id)
             )
         """)
-
         await db.execute("""
             CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,
@@ -58,7 +54,6 @@ async def init_db():
                 FOREIGN KEY (workspace_id) REFERENCES workspaces(id)
             )
         """)
-
         await db.execute("""
             CREATE TABLE IF NOT EXISTS edges (
                 id TEXT PRIMARY KEY,
@@ -72,23 +67,12 @@ async def init_db():
                 FOREIGN KEY (target_id) REFERENCES notes(id) ON DELETE CASCADE
             )
         """)
-
-        await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_notes_workspace ON notes(workspace_id)"
-        )
-        await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_notes_created ON notes(created_at DESC)"
-        )
-        await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id)"
-        )
-        await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id)"
-        )
-
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_notes_workspace ON notes(workspace_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_notes_created ON notes(created_at DESC)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id)")
         await db.commit()
 
-        # Seed default workspace
         try:
             now = datetime.now().isoformat()
             await db.execute(
@@ -99,4 +83,5 @@ async def init_db():
         except aiosqlite.IntegrityError:
             pass
 
-    print("[DB] Ready")
+    print("[STORE] SQLite ready")
+
