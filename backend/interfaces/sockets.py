@@ -33,6 +33,9 @@ async def phone_websocket(websocket: WebSocket):
                     "type": "speak",
                     "text": result["spoken_response"]
                 }))
+            elif data.get("type") == "ping":
+                # Handle heartbeat to keep connection alive
+                await websocket.send_text(json.dumps({"type": "pong"}))
             else:
                  print(f"[WS] Received unknown type: {data}")
                 

@@ -1,9 +1,11 @@
 # app.py
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
+from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from network import print_connection_qr
 from interfaces.sockets import router as sockets_router
+from interfaces.rest import router as rest_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -14,8 +16,17 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Add the websocket routes to the app
 app.include_router(sockets_router)
+app.include_router(rest_router, prefix="/api")
 
 # Basic health check
 @app.get("/")

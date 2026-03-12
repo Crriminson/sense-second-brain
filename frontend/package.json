@@ -1,0 +1,68 @@
+{
+  "name": "react-vite-tailwind",
+  "private": true,
+  "version": "0.0.0",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "electron:dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
+    "electron:build": "vite build && electron-builder",
+    "dist": "vite build && electron-builder"
+  },
+  "dependencies": {
+    "@studio-freight/lenis": "^1.0.42",
+    "@tailwindcss/typography": "^0.5.19",
+    "@tiptap/extension-heading": "^3.20.1",
+    "@tiptap/extension-placeholder": "^3.20.1",
+    "@tiptap/extension-task-item": "^3.20.1",
+    "@tiptap/extension-task-list": "^3.20.1",
+    "@tiptap/react": "^3.20.1",
+    "@tiptap/starter-kit": "^3.20.1",
+    "@types/dom-speech-recognition": "^0.0.7",
+    "clsx": "2.1.1",
+    "lucide-react": "^0.577.0",
+    "ogl": "^1.0.11",
+    "openai": "^6.27.0",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-router-dom": "^7.13.1",
+    "tailwind-merge": "3.4.0",
+    "zustand": "^5.0.11"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.1.17",
+    "@types/node": "^22.0.0",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "5.1.1",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^41.0.0",
+    "electron-builder": "^26.8.1",
+    "electron-packager": "^17.1.2",
+    "tailwindcss": "4.1.17",
+    "typescript": "5.9.3",
+    "vite": "7.2.4",
+    "vite-plugin-singlefile": "2.3.0",
+    "wait-on": "^9.0.4"
+  },
+  "build": {
+    "appId": "com.versiona.app",
+    "productName": "Version A",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "win": {
+      "target": [
+        "zip",
+        "dir"
+      ]
+    }
+  }
+}
