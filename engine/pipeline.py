@@ -1,23 +1,20 @@
-from ai import classify, answer, relate
-from store import notes, vectors
-from . import tasks
+# engine/pipeline.py
+from ai import intents
 
-# Main process_text() + intent handlers
-
-async def process_text(text: str):
-    # 1. Classify intent
-    intent = classify(text)
+async def process_text(text: str) -> dict:
+    """
+    Takes text from the phone, runs it through AI, 
+    and returns what the system should do/say.
+    """
+    print(f"[ENGINE] Processing: '{text}'")
     
-    # 2. Handle intent
-    if intent == "question":
-        return answer(text)
-    elif intent == "note":
-        # Save note
-        notes.create_note(text)
-        # Add to vector store
-        vectors.add(text, {"type": "note"})
-        # Trigger background tasks
-        tasks.compute_edges.delay(text)
-        return "Note saved."
-    else:
-        return "I'm not sure what you mean."
+    # Run the AI classification we tested earlier
+    classified = await intents.classify(text, active_workspace="General")
+    
+    # We will add database saving here later, 
+    # but for now, let's just return the AI's response to test the loop!
+    
+    print(f"[ENGINE] AI decided intent is: {classified['intent']}")
+    print(f"[ENGINE] AI wants to say: {classified['spoken_response']}")
+    
+    return classified

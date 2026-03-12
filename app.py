@@ -1,29 +1,27 @@
+# app.py
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
-from engine import process
-from interfaces import rest, sockets
-from store import init_store
-
-# FastAPI setup, mounts routes, starts services
+import uvicorn
+from network import print_connection_qr
+from interfaces.sockets import router as sockets_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Load models, connect to DB
-    print("Sense is starting up...")
-    init_store()
+    # Print the QR code exactly when the server starts
+    print_connection_qr()
     yield
-    # Shutdown: Disconnect DB, etc.
-    print("Sense is shutting down...")
+    print("\n[SERVER] Shutting down...")
 
 app = FastAPI(lifespan=lifespan)
 
-app.include_router(rest.router)
-app.add_websocket_route("/ws", sockets.websocket_endpoint)
+# Add the websocket routes to the app
+app.include_router(sockets_router)
 
+# Basic health check
 @app.get("/")
-async def root():
-    return {"message": "Sense is online"}
+def read_root():
+    return {"status": "Second Brain is running"}
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Host 0.0.0.0 is REQUIRED so the phone can connect over WiFi
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
