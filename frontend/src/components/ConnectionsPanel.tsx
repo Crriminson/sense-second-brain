@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { Idea, IdeaConnection } from "../store/ideas";
 import { ideaStore } from "../store/ideas";
 import { analyzeConnections } from "../api/process";
@@ -74,6 +74,18 @@ export default function ConnectionsPanel({ ideas }: Props) {
   const [error, setError] = useState("");
   const [collapsed, setCollapsed] = useState(false);
 
+  const visibleConnections = useMemo(() => {
+    const ids = new Set(ideas.map((i) => i.id));
+    return connections.filter((c) => ids.has(c.idea_a_id) && ids.has(c.idea_b_id));
+  }, [connections, ideas]);
+
+  useEffect(() => {
+    const unsub = ideaStore.subscribe(() => {
+      setConnections(ideaStore.getConnections());
+    });
+    return unsub;
+  }, []);
+
   const handleAnalyze = useCallback(async () => {
     if (ideas.length < 2) return;
     setLoading(true);
@@ -91,8 +103,8 @@ export default function ConnectionsPanel({ ideas }: Props) {
     }
   }, [ideas]);
 
-  const strong = connections.filter((c) => c.strength === "strong").length;
-  const moderate = connections.filter((c) => c.strength === "moderate").length;
+  const strong = visibleConnections.filter((c) => c.strength === "strong").length;
+  const moderate = visibleConnections.filter((c) => c.strength === "moderate").length;
 
   return (
     <div className="rounded-2xl border border-sky-200 bg-gradient-to-br from-sky-50 to-indigo-50 shadow-sm mb-6 overflow-hidden">
@@ -105,15 +117,15 @@ export default function ConnectionsPanel({ ideas }: Props) {
           <div>
             <h2 className="text-sm font-bold text-sky-900">Idea Connections</h2>
             <p className="text-xs text-sky-600">
-              {connections.length > 0
-                ? `${connections.length} connection${connections.length !== 1 ? "s" : ""} found · ${strong} strong · ${moderate} moderate`
+              {visibleConnections.length > 0
+                ? `${visibleConnections.length} connection${visibleConnections.length !== 1 ? "s" : ""} found · ${strong} strong · ${moderate} moderate`
                 : `${ideas.length} ideas ready to analyze`}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          {connections.length > 0 && (
+          {visibleConnections.length > 0 && (
             <button
               onClick={() => setCollapsed((v) => !v)}
               className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-100 transition-colors"
@@ -132,7 +144,7 @@ export default function ConnectionsPanel({ ideas }: Props) {
                 <Loader2 size={13} className="animate-spin" />
                 Analyzing…
               </>
-            ) : connections.length > 0 ? (
+            ) : visibleConnections.length > 0 ? (
               <>
                 <RefreshCw size={13} />
                 Re-analyze
@@ -165,16 +177,16 @@ export default function ConnectionsPanel({ ideas }: Props) {
       )}
 
       {/* No connections found */}
-      {!loading && connections.length === 0 && ideas.length >= 2 && (
+      {!loading && visibleConnections.length === 0 && ideas.length >= 2 && (
         <div className="px-5 pb-5">
           <p className="text-xs text-sky-500 text-center py-3 rounded-xl border border-sky-200 border-dashed bg-sky-50/50">
-            Click "Analyze Connections" to discover relationships between your ideas.
+            No saved connections yet. Click "Analyze Connections" to fetch current relationships from the backend.
           </p>
         </div>
       )}
 
       {/* Connections list */}
-      {connections.length > 0 && !collapsed && (
+      {visibleConnections.length > 0 && !collapsed && (
         <div className="px-5 pb-5 space-y-2.5">
           <div className="h-px bg-sky-200" />
 
@@ -188,7 +200,7 @@ export default function ConnectionsPanel({ ideas }: Props) {
             ))}
           </div>
 
-          {connections.map((conn, i) => (
+          {visibleConnections.map((conn, i) => (
             <ConnectionCard key={`${conn.idea_a_id}-${conn.idea_b_id}-${i}`} conn={conn} />
           ))}
         </div>

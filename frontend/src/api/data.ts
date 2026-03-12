@@ -48,6 +48,8 @@ export function mapNoteToIdea(note: BackendNote): Idea {
     importance_score: 5,
     raw_transcript: clean,
     timestamp: note.created_at,
+    workspace_id: note.workspace_id,
+    workspace_name: note.workspace_name,
     is_expanded: false,
   };
 }

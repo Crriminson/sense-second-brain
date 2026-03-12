@@ -5,6 +5,7 @@ sqlalchemy
 aiosqlite
 chromadb
 httpx
+qrcode
 websockets
 aiomqtt
 paho-mqtt

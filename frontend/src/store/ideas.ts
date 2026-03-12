@@ -19,6 +19,8 @@ export interface Idea {
   importance_score: number;
   raw_transcript: string;
   timestamp: string;
+  workspace_id?: string;
+  workspace_name?: string;
   // V2 fields
   expansion?: IdeaExpansion;
   is_expanded?: boolean;
@@ -46,7 +48,6 @@ export interface DailyInsight {
 
 const STORAGE_KEY = "thoughtcapture_ideas_v2";
 const INSIGHT_KEY = "thoughtcapture_daily_insight_v2";
-const CONNECTIONS_KEY = "thoughtcapture_connections_v2";
 
 function loadFromStorage(): Idea[] {
   try {
@@ -83,26 +84,11 @@ function saveDailyInsight(insight: DailyInsight): void {
   } catch {}
 }
 
-function loadConnections(): IdeaConnection[] {
-  try {
-    const raw = localStorage.getItem(CONNECTIONS_KEY);
-    if (!raw) return [];
-    return JSON.parse(raw) as IdeaConnection[];
-  } catch {
-    return [];
-  }
-}
-
-function saveConnections(connections: IdeaConnection[]): void {
-  try {
-    localStorage.setItem(CONNECTIONS_KEY, JSON.stringify(connections));
-  } catch {}
-}
-
 // ─── Store class ───────────────────────────────────────────────────────────────
 
 class IdeaStore {
   private ideas: Idea[] = loadFromStorage();
+  private connections: IdeaConnection[] = [];
   private listeners: Array<() => void> = [];
 
   // ── Ideas ──────────────────────────────────────────────────────────────────
@@ -148,6 +134,7 @@ class IdeaStore {
 
   clear(): void {
     this.ideas = [];
+    this.connections = [];
     saveToStorage([]);
     this.notify();
   }
@@ -166,11 +153,11 @@ class IdeaStore {
   // ── Connections ────────────────────────────────────────────────────────────
 
   getConnections(): IdeaConnection[] {
-    return loadConnections();
+    return [...this.connections];
   }
 
   setConnections(connections: IdeaConnection[]): void {
-    saveConnections(connections);
+    this.connections = [...connections];
     this.notify();
   }
 

@@ -150,69 +150,7 @@ export async function generateDailyInsight(ideas: Idea[]): Promise<DailyInsight>
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 4. CONNECTION DETECTION
-// ─────────────────────────────────────────────────────────────────────────────
-
-function detectConnectionsLocally(ideas: Idea[]): IdeaConnection[] {
-  const connections: IdeaConnection[] = [];
-
-  for (let i = 0; i < ideas.length; i++) {
-    for (let j = i + 1; j < ideas.length; j++) {
-      const a = ideas[i];
-      const b = ideas[j];
-
-      // Find shared tags
-      const sharedTags = a.tags.filter((t) => b.tags.includes(t));
-
-      // Find shared words in titles/summaries
-      const aWords = new Set(
-        (a.title + " " + a.summary)
-          .toLowerCase()
-          .split(/\s+/)
-          .filter((w) => w.length > 4)
-      );
-      const bWords = (b.title + " " + b.summary)
-        .toLowerCase()
-        .split(/\s+/)
-        .filter((w) => w.length > 4);
-      const sharedWords = bWords.filter((w) => aWords.has(w));
-
-      const score = sharedTags.length * 2 + sharedWords.length;
-
-      if (score >= 2) {
-        const strength: IdeaConnection["strength"] =
-          score >= 5 ? "strong" : score >= 3 ? "moderate" : "weak";
-        const connector =
-          sharedTags.length > 0
-            ? `shared themes of ${sharedTags.slice(0, 2).join(" and ")}`
-            : `overlapping concepts`;
-
-        connections.push({
-          idea_a_id: a.id,
-          idea_b_id: b.id,
-          idea_a_title: a.title,
-          idea_b_title: b.title,
-          explanation: `"${a.title}" and "${b.title}" are connected through ${connector}, suggesting they could be developed together or share underlying infrastructure.`,
-          strength,
-        });
-      }
-    }
-  }
-
-  // Return top 6 sorted by strength
-  const strengthOrder = { strong: 0, moderate: 1, weak: 2 };
-  return connections
-    .sort((a, b) => strengthOrder[a.strength] - strengthOrder[b.strength])
-    .slice(0, 6);
-}
-
 export async function analyzeConnections(ideas: Idea[]): Promise<IdeaConnection[]> {
   if (ideas.length < 2) return [];
-  try {
-    return await postJSON<IdeaConnection[]>("/connections", { ideas });
-  } catch (err) {
-    console.warn("Backend connections failed, falling back:", err);
-  }
-  return detectConnectionsLocally(ideas);
+  return await postJSON<IdeaConnection[]>("/connections", { ideas });
 }
