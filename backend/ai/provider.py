@@ -48,6 +48,9 @@ async def ask(
         else:
             print(f"[AI] Unknown provider: {provider}")
             return ""
+    except asyncio.CancelledError:
+        print(f"[AI] Request cancelled (WebSocket disconnect?)")
+        return ""
     except httpx.TimeoutException:
         print(f"[AI] Timeout after {timeout}s")
         return ""
@@ -57,22 +60,31 @@ async def ask(
 
 
 async def _ask_ollama(prompt, temperature, json_mode, timeout):
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        body = {
-            "model": settings.LLM_MODEL,
-            "prompt": prompt,
-            "stream": False,
-            "options": {
-                "temperature": temperature,
-                "num_predict": 512,
-            },
-        }
-        if json_mode:
-            body["format"] = "json"
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            body = {
+                "model": settings.LLM_MODEL,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "temperature": temperature,
+                    "num_predict": 512,
+                },
+            }
+            if json_mode:
+                body["format"] = "json"
 
-        resp = await client.post(f"{settings.LLM_URL}/api/generate", json=body)
-        resp.raise_for_status()
-        return resp.json()["response"]
+            resp = await client.post(f"{settings.LLM_URL}/api/generate", json=body)
+            resp.raise_for_status()
+            return resp.json()["response"]
+    except asyncio.CancelledError:
+        raise
+    except httpx.HTTPStatusError as e:
+        print(f"[AI] Ollama error: {e.response.status_code} {e.response.text[:200]}")
+        return ""
+    except (httpx.TimeoutException, httpx.ConnectError) as e:
+        print(f"[AI] Ollama unavailable: {e}")
+        return ""
 
 
 async def _ask_groq(prompt, temperature, json_mode, timeout):
