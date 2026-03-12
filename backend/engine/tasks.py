@@ -26,7 +26,7 @@ class ComputeEdgesTask(Task):
         
         # 1. Find contextually similar notes (top 3)
         # We skip the most recent one (itself) by potentially taking 4 and slicing
-        similar_notes = vector_search.search(note_content, top_k=4)
+        similar_notes = vector_search(note_content, top_k=4)
         
         # 2. Compare with existing notes
         for other in similar_notes:
