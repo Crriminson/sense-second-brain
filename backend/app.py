@@ -1,4 +1,5 @@
 # app.py
+import asyncio
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,13 +7,20 @@ import uvicorn
 from network import print_connection_qr
 from interfaces.sockets import router as sockets_router
 from interfaces.rest import router as rest_router
+from store.sql.connection import init_db
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await init_db()
     # Print the QR code exactly when the server starts
     print_connection_qr()
-    yield
-    print("\n[SERVER] Shutting down...")
+    try:
+        yield
+    except asyncio.CancelledError:
+        # Uvicorn/Starlette can cancel lifespan receive on Ctrl+C in dev.
+        pass
+    finally:
+        print("\n[SERVER] Shutting down...")
 
 app = FastAPI(lifespan=lifespan)
 
@@ -35,4 +43,22 @@ def read_root():
 
 if __name__ == "__main__":
     # Host 0.0.0.0 is REQUIRED so the phone can connect over WiFi
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+    try:
+        uvicorn.run(
+            "app:app",
+            host="0.0.0.0",
+            port=8000,
+            reload=True,
+            reload_excludes=[
+                "*.db",
+                "*.db-wal",
+                "*.db-shm",
+                "chroma_data/*",
+                "*.pyc",
+                "__pycache__/*",
+                "*.log",
+            ],
+        )
+    except KeyboardInterrupt:
+        # Ctrl+C during dev shutdown can bubble KeyboardInterrupt from asyncio.
+        pass

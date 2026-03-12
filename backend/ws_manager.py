@@ -7,7 +7,6 @@ class WSManager:
         self.phone_connections: list[WebSocket] = []
 
     async def connect_phone(self, ws: WebSocket):
-        await ws.accept()
         self.phone_connections.append(ws)
         print(f"[WS] 📱 Phone connected! Total phones: {len(self.phone_connections)}")
 

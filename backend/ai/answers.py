@@ -1,9 +1,8 @@
-# ai/answers.py
 """
 Question answering and meeting summarization.
 
 Takes a question + relevant notes (from vector search) + edge context.
-Synthesizes a natural language answer.
+Synthesizes a natural answer.
 
 Also handles meeting transcript summarization.
 
@@ -18,39 +17,57 @@ from config import settings
 #  PROMPTS
 # ═══════════════════════════════════════
 
-ANSWER_PROMPT = """You are the memory retrieval system for Second Brain, a personal knowledge workspace.
+ANSWER_PROMPT = """You are Second Brain — a personal AI that recalls the user's past notes.
 
-The user is asking about something from their past notes. Answer based ONLY on the notes provided below.
+You are retrieving the user's OWN memories. Talk like a chill friend who remembers things for them.
 
-Rules:
-1. Only use information from the provided notes
-2. If the notes don't contain enough info, say so honestly
-3. If there are contradictions between notes, mention them
-4. Keep the answer short and conversational — it will be spoken aloud
-5. Reference timeframes if available ("you mentioned last Tuesday...")
+RULES — follow these STRICTLY:
+1. ONLY use information from the provided notes. Never invent facts.
+2. Maximum 2 sentences. This gets spoken aloud — brevity is everything.
+3. NO hedging. No "unfortunately", "it seems like", "I'm not sure", "it appears".
+4. NO yapping. No filler. No restating the question. Just answer.
+5. If names sound similar (Bhole/Bole, Suvarna/Swarna), treat them as the SAME person.
+   Whisper speech-to-text often misspells names — assume phonetic matches are the same.
+6. If notes contradict each other, mention it briefly: "You said X, but later said Y."
+7. If you genuinely don't have the info, just say "Nothing in your notes about that."
+8. Speak like a person, not a database. Warm, direct, zero fluff.
+
+GOOD examples:
+  "Yeah, you noted that Pratham is from EXTC B."
+  "You said Aditya Bhole's bottle is red."
+  "Nothing in your notes about that."
+  "You mentioned the API uses JWT tokens, but later said to switch to OAuth."
+
+BAD examples (never do this):
+  "Unfortunately, I was unable to find comprehensive information about..."
+  "It seems like you may have mentioned something related to..."
+  "Based on the available notes, it appears that..."
+  "I found a note that mentions X, but it doesn't have additional details..."
 
 Question: "{question}"
 
-Relevant notes:
+Notes:
 {context}
 
 {edge_context}
 
-Answer (conversational, 2-4 sentences max):"""
+Answer:"""
 
 
 SUMMARIZE_PROMPT = """Summarize this meeting transcript.
 
 Extract:
-1. A brief 2-3 sentence summary of what was discussed
+1. A brief 2 sentence summary of what was discussed
 2. Concrete action items (things someone needs to DO)
+
+Keep it tight. No filler.
 
 Transcript:
 {transcript}
 
 Respond in JSON:
 {{
-    "summary": "<2-3 sentence summary>",
+    "summary": "<2 sentence summary>",
     "action_items": ["<specific action 1>", "<specific action 2>"]
 }}
 
@@ -69,49 +86,42 @@ async def answer(
 ) -> str:
     """
     Given a question and relevant notes, synthesize an answer.
-    
+
     relevant_notes: from vector search
         [{ "text": "...", "workspace": "...", "similarity": 0.87 }]
-    
+
     edge_context: relationships between those notes
         [{ "rel_type": "contradicts", "source_text": "...", "target_text": "..." }]
-    
+
     Returns: natural language answer string.
     """
     if not relevant_notes:
-        return "I don't have any notes about that yet."
+        return "Nothing in your notes about that."
 
-    # Build context from notes
+    # Build context from notes — compact, no fluff
     context_parts = []
     for i, note in enumerate(relevant_notes):
-        text = note.get("text", "")
+        text = note.get("text", "")[:200]
         workspace = note.get("workspace", "")
-        similarity = note.get("similarity", 0)
-        context_parts.append(
-            f"[Note {i+1}] (workspace: {workspace}, relevance: {similarity})\n{text[:300]}"
-        )
-    context = "\n---\n".join(context_parts)
+        context_parts.append(f"[{workspace}] {text}")
+    context = "\n".join(context_parts)
 
-    # Build edge context
+    # Build edge context — only include if meaningful
     edge_text = ""
     if edge_context:
         edge_parts = []
         for edge in edge_context:
             rel = edge.get("rel_type", "related_to")
             if rel == "contradicts":
-                src = edge.get("source_text", "")[:80]
-                tgt = edge.get("target_text", "")[:80]
-                edge_parts.append(
-                    f"⚠️ CONTRADICTION: \"{src}\" conflicts with \"{tgt}\""
-                )
+                src = edge.get("source_text", "")[:60]
+                tgt = edge.get("target_text", "")[:60]
+                edge_parts.append(f"CONTRADICTION: \"{src}\" vs \"{tgt}\"")
             elif rel == "extends":
-                src = edge.get("source_text", "")[:80]
-                tgt = edge.get("target_text", "")[:80]
-                edge_parts.append(
-                    f"📎 BUILDS ON: \"{tgt}\" expands on \"{src}\""
-                )
+                src = edge.get("source_text", "")[:60]
+                tgt = edge.get("target_text", "")[:60]
+                edge_parts.append(f"RELATED: \"{tgt}\" builds on \"{src}\"")
         if edge_parts:
-            edge_text = "Known relationships between notes:\n" + "\n".join(edge_parts)
+            edge_text = "Relationships:\n" + "\n".join(edge_parts)
 
     prompt = ANSWER_PROMPT.format(
         question=question,
@@ -119,7 +129,6 @@ async def answer(
         edge_context=edge_text,
     )
 
-    # Don't force JSON — we want natural language
     result = await provider.ask(
         prompt,
         temperature=0.3,
@@ -128,9 +137,44 @@ async def answer(
     )
 
     if result and result.strip():
-        return result.strip()
+        # Strip any quotes the LLM might wrap the answer in
+        answer_text = result.strip().strip('"').strip("'")
+        return answer_text
     else:
-        return "Sorry, I had trouble answering that. Try asking differently?"
+        return "Couldn't pull that up right now. Try asking again?"
+
+
+# ═══════════════════════════════════════
+#  GENERAL KNOWLEDGE ANSWER
+# ═══════════════════════════════════════
+
+GENERAL_PROMPT = """Answer this question directly. 2-3 sentences max.
+Talk like a knowledgeable friend — warm, clear, no lecture tone.
+This will be spoken aloud so keep it natural.
+
+Question: "{question}"
+
+Answer:"""
+
+
+async def answer_general(question: str) -> str:
+    """
+    Answer a general knowledge question (not from user's notes).
+    Used by the general_query intent handler.
+    """
+    prompt = GENERAL_PROMPT.format(question=question)
+
+    result = await provider.ask(
+        prompt,
+        temperature=0.4,
+        json_mode=False,
+        timeout=settings.TIMEOUT_ANSWER,
+    )
+
+    if result and result.strip():
+        return result.strip().strip('"').strip("'")
+    else:
+        return "I blanked on that one. Try asking differently?"
 
 
 # ═══════════════════════════════════════
@@ -140,26 +184,25 @@ async def answer(
 async def summarize(transcript: str) -> dict:
     """
     Summarize a meeting transcript.
-    
+
     Returns:
         {
-            "summary": "2-3 sentence summary",
+            "summary": "2 sentence summary",
             "action_items": ["item 1", "item 2"]
         }
-    
+
     NEVER throws. Returns fallback if AI fails.
     """
     if not transcript or not transcript.strip():
         return {
-            "summary": "Empty meeting — no transcript recorded.",
+            "summary": "Empty meeting — nothing recorded.",
             "action_items": [],
         }
 
     # Truncate very long transcripts
-    # Most models have 4k-8k context window
     truncated = transcript[:4000]
     if len(transcript) > 4000:
-        truncated += "\n[... transcript truncated for summarization ...]"
+        truncated += "\n[... transcript truncated ...]"
 
     prompt = SUMMARIZE_PROMPT.format(transcript=truncated)
 
@@ -176,7 +219,7 @@ async def summarize(transcript: str) -> dict:
         return _validate_summary(parsed)
     else:
         return {
-            "summary": "Meeting ended. I had trouble summarizing — the raw transcript is saved.",
+            "summary": "Meeting ended. Couldn't summarize — raw transcript is saved.",
             "action_items": [],
         }
 
@@ -190,7 +233,11 @@ def _validate_summary(parsed: dict) -> dict:
     action_items = parsed.get("action_items", [])
     if not isinstance(action_items, list):
         action_items = []
-    action_items = [str(item).strip() for item in action_items if item and str(item).strip()]
+    action_items = [
+        str(item).strip()
+        for item in action_items
+        if item and str(item).strip()
+    ]
 
     return {
         "summary": summary.strip(),
