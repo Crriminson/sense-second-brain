@@ -2,6 +2,12 @@
 import chromadb
 import hashlib
 from config import CHROMA_PATH, EMBEDDING_MODEL, SEARCH_SIMILARITY_MIN
+import os
+os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+import logging
+logging.getLogger("transformers.modeling_utils").setLevel(logging.ERROR)
+
+os.environ["HF_HUB_DISABLE_IMPLICIT_TOKEN"] = "1"
 
 _model = None
 _collection = None

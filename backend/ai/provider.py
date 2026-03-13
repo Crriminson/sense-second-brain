@@ -1,4 +1,3 @@
-# ai/provider.py
 """
 LLM abstraction layer.
 
@@ -10,8 +9,8 @@ Swap guide:
   Change LLM_PROVIDER in config.py. That's it.
   
 Testing guide:
-  On weak laptop: LLM_MODEL = "qwen2:1.5b" (small, fast, less accurate)
-  On GPU machine: LLM_MODEL = "mistral" (bigger, slower, more accurate)
+  On weak laptop: LLM_MODEL = "phi3:mini" (small, fast)
+  On GPU machine: LLM_MODEL = "qwen2.5:7b" (bigger, slower, more accurate)
   Free cloud:     LLM_PROVIDER = "groq" (fast, free tier, needs internet)
 """
 
@@ -28,15 +27,7 @@ async def ask(
     json_mode: bool = True,
     timeout: float = 15.0,
 ) -> str:
-    """
-    Send prompt to LLM, get response string.
-    
-    This function NEVER throws to the caller.
-    If the LLM call fails, returns empty string.
-    Callers must handle empty string as "AI failed."
-    """
     try:
-        # Check settings
         provider = settings.LLM_PROVIDER
         
         if provider == "ollama":
@@ -66,9 +57,11 @@ async def _ask_ollama(prompt, temperature, json_mode, timeout):
                 "model": settings.LLM_MODEL,
                 "prompt": prompt,
                 "stream": False,
+                "keep_alive": "10m",
                 "options": {
                     "temperature": temperature,
-                    "num_predict": 512,
+                    "num_predict": 256,
+                    "num_ctx": 2048,
                 },
             }
             if json_mode:
@@ -134,33 +127,17 @@ async def _ask_openai(prompt, temperature, json_mode, timeout):
 
 
 def parse_json(text: str) -> dict | None:
-    """
-    Robust JSON parser.
-    
-    Handles:
-    1. Clean JSON: {"key": "value"}
-    2. JSON wrapped in text: "Here's the result: {"key": "value"} hope this helps"
-    3. JSON with trailing commas: {"tags": ["a", "b",]}
-    4. Complete garbage: returns None
-    
-    This exists because local LLMs sometimes wrap JSON in 
-    explanatory text or add trailing commas.
-    """
     if not text or not text.strip():
         return None
 
-    # Try direct parse first
     try:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
 
-    # Try to find JSON object in the text
-    # Look for the outermost { ... }
     match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', text, re.DOTALL)
     if match:
         json_str = match.group()
-        # Fix trailing commas (common LLM mistake)
         json_str = re.sub(r',\s*}', '}', json_str)
         json_str = re.sub(r',\s*]', ']', json_str)
         try:
