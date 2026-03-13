@@ -40,8 +40,8 @@ async def create(name: str) -> dict:
         ws_id = str(uuid.uuid4())
         now = datetime.now().isoformat()
         await db.execute(
-            "INSERT INTO workspaces (id, name, is_active, created_at) VALUES (?, ?, 0, ?)",
-            (ws_id, name.strip(), now)
+            "INSERT INTO workspaces (id, name, is_active, created_at, context_data) VALUES (?, ?, 0, ?, ?)",
+            (ws_id, name.strip(), now, "{}")
         )
         await db.commit()
         cursor = await db.execute("SELECT * FROM workspaces WHERE id = ?", (ws_id,))
@@ -62,8 +62,8 @@ async def switch(name: str) -> dict:
         else:
             ws_id = str(uuid.uuid4())
             await db.execute(
-                "INSERT INTO workspaces (id, name, is_active, created_at) VALUES (?, ?, 1, ?)",
-                (ws_id, name.strip(), now)
+                "INSERT INTO workspaces (id, name, is_active, created_at, context_data) VALUES (?, ?, 1, ?, ?)",
+                (ws_id, name.strip(), now, "{}")
             )
         await db.commit()
         cursor = await db.execute("SELECT * FROM workspaces WHERE id = ?", (ws_id,))
@@ -82,5 +82,12 @@ async def delete(workspace_id: str) -> bool:
         await db.execute("DELETE FROM sessions WHERE workspace_id = ?", (workspace_id,))
         cursor = await db.execute("DELETE FROM workspaces WHERE id = ?", (workspace_id,))
         await db.commit()
-        return cursor.rowcount > 0
 
+async def update_context(workspace_id: str, context_data: str) -> bool:
+    async with get_db() as db:
+        cursor = await db.execute(
+            "UPDATE workspaces SET context_data = ? WHERE id = ?",
+            (context_data, workspace_id)
+        )
+        await db.commit()
+        return cursor.rowcount > 0

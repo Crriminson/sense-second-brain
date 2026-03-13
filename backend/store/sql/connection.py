@@ -26,7 +26,8 @@ async def init_db():
                 id TEXT PRIMARY KEY,
                 name TEXT UNIQUE NOT NULL,
                 is_active INTEGER DEFAULT 0,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                context_data TEXT DEFAULT '{}'
             )
         """)
         await db.execute("""
@@ -70,14 +71,23 @@ async def init_db():
         await db.execute("CREATE INDEX IF NOT EXISTS idx_notes_workspace ON notes(workspace_id)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_notes_created ON notes(created_at DESC)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id)")
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS google_credentials (
+                id TEXT PRIMARY KEY,
+                access_token TEXT NOT NULL,
+                refresh_token TEXT,
+                expires_at REAL NOT NULL,
+                email TEXT
+            )
+        """)
         await db.execute("CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id)")
         await db.commit()
 
         try:
             now = datetime.now().isoformat()
             await db.execute(
-                "INSERT INTO workspaces (id, name, is_active, created_at) VALUES (?, ?, 1, ?)",
-                (str(uuid.uuid4()), "General", now)
+                "INSERT INTO workspaces (id, name, is_active, created_at, context_data) VALUES (?, ?, 1, ?, ?)",
+                (str(uuid.uuid4()), "General", now, "{}")
             )
             await db.commit()
         except aiosqlite.IntegrityError:

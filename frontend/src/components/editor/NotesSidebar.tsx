@@ -1,4 +1,4 @@
-import { FileText, Plus, Search, Trash2, FolderPen } from 'lucide-react';
+import { FileText, Plus, Search, Trash2, FolderPen, Sparkles } from 'lucide-react';
 import useNoteStore from '../../store/useNoteStore';
 import { useState } from 'react';
 
@@ -9,6 +9,7 @@ export default function NotesSidebar() {
   const setActiveNote = useNoteStore((s) => s.setActiveNote);
   const addNote = useNoteStore((s) => s.addNote);
   const deleteNote = useNoteStore((s) => s.deleteNote);
+  const structureWorkspace = useNoteStore((s) => s.structureWorkspace);
   
   const workspaces = useNoteStore((s) => s.workspaces);
   const setActiveWorkspace = useNoteStore((s) => s.setActiveWorkspace);
@@ -122,13 +123,23 @@ export default function NotesSidebar() {
         <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
           Notes ({workspaceNotes.length})
         </span>
-        <button
-          onClick={() => addNote()}
-          className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-[#07beb8] hover:text-[#3dccc7] hover:bg-[#07beb8]/10 px-2 py-1 rounded-md transition-all"
-        >
-          <Plus className="w-3 h-3" />
-          New
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => structureWorkspace()}
+            className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-purple-500 hover:text-purple-600 hover:bg-purple-50 px-2 py-1 rounded-md transition-all group"
+            title="Auto-Structure Notes"
+          >
+            <Sparkles className="w-3 h-3 group-hover:animate-pulse" />
+            <span className="hidden sm:inline">Structure</span>
+          </button>
+          <button
+            onClick={() => addNote()}
+            className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-[#07beb8] hover:text-[#3dccc7] hover:bg-[#07beb8]/10 px-2 py-1 rounded-md transition-all"
+          >
+            <Plus className="w-3 h-3" />
+            New
+          </button>
+        </div>
       </div>
 
       {/* List */}

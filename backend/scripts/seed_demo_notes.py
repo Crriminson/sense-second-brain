@@ -21,6 +21,8 @@ if ROOT_DIR not in sys.path:
 
 from store.sql.connection import get_db, init_db
 from store.sql import workspaces, notes
+from store import vectors as vector_store
+from engine.tasks import compute_edges
 
 DEMO_DATA = {
     "HackOverflow": [
@@ -114,7 +116,14 @@ async def main():
         for note_text in note_texts:
             if await _note_exists(ws["id"], note_text):
                 continue
-            await notes.save(raw_text=note_text, workspace_id=ws["id"])
+            note = await notes.save(raw_text=note_text, workspace_id=ws["id"])
+            vector_store.add(
+                note_id=note["id"],
+                text=note["raw_text"],
+                workspace=ws["name"],
+                tags=[],
+            )
+            compute_edges.delay(note["raw_text"], note["id"])
             inserted += 1
 
         print(f"[seed] Inserted {inserted} new notes into '{ws_name}'")
@@ -122,5 +131,31 @@ async def main():
     print("[seed] Done.")
 
 
+async def index_existing_notes():
+    """Index all notes in the demo workspaces into vector store and compute edges."""
+    print("[seed] Indexing existing notes into vector store...")
+
+    for ws_name in DEMO_DATA.keys():
+        ws = await workspaces.get_by_name(ws_name)
+        if not ws:
+            continue
+
+        all_notes = await notes.list_all(workspace_id=ws["id"])
+        for note in all_notes:
+            # Check if already indexed? For simplicity, just add (vector store might handle duplicates)
+            vector_store.add(
+                note_id=note["id"],
+                text=note["raw_text"],
+                workspace=ws["name"],
+                tags=note.get("tags", []),
+            )
+            compute_edges.delay(note["raw_text"], note["id"])
+
+        print(f"[seed] Indexed {len(all_notes)} notes in '{ws_name}'")
+
+    print("[seed] Indexing complete.")
+
+
 if __name__ == "__main__":
     asyncio.run(main())
+    asyncio.run(index_existing_notes())

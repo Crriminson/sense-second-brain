@@ -13,3 +13,5 @@ requests
 numpy
 python-multipart
 sentence-transformers
+authlib
+itsdangerous

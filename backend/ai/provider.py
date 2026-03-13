@@ -26,16 +26,18 @@ async def ask(
     temperature: float = 0.1,
     json_mode: bool = True,
     timeout: float = 15.0,
+    tools: list = None,
+    tool_choice: str = "auto",
 ) -> str:
     try:
         provider = settings.LLM_PROVIDER
         
         if provider == "ollama":
-            return await _ask_ollama(prompt, temperature, json_mode, timeout)
+            return await _ask_ollama(prompt, temperature, json_mode, timeout, tools)
         elif provider == "groq":
-            return await _ask_groq(prompt, temperature, json_mode, timeout)
+            return await _ask_groq(prompt, temperature, json_mode, timeout, tools, tool_choice)
         elif provider == "openai":
-            return await _ask_openai(prompt, temperature, json_mode, timeout)
+            return await _ask_openai(prompt, temperature, json_mode, timeout, tools, tool_choice)
         else:
             print(f"[AI] Unknown provider: {provider}")
             return ""
@@ -50,7 +52,7 @@ async def ask(
         return ""
 
 
-async def _ask_ollama(prompt, temperature, json_mode, timeout):
+async def _ask_ollama(prompt, temperature, json_mode, timeout, tools):
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             body = {
@@ -66,10 +68,17 @@ async def _ask_ollama(prompt, temperature, json_mode, timeout):
             }
             if json_mode:
                 body["format"] = "json"
+            if tools:
+                body["tools"] = tools
 
             resp = await client.post(f"{settings.LLM_URL}/api/generate", json=body)
             resp.raise_for_status()
-            return resp.json()["response"]
+            
+            data = resp.json()
+            # Ollama returns tool calls differently if it used them
+            if "message" in data and "tool_calls" in data["message"]:
+                return json.dumps(data["message"]["tool_calls"])
+            return data["response"]
     except asyncio.CancelledError:
         raise
     except httpx.HTTPStatusError as e:
@@ -80,16 +89,19 @@ async def _ask_ollama(prompt, temperature, json_mode, timeout):
         return ""
 
 
-async def _ask_groq(prompt, temperature, json_mode, timeout):
+async def _ask_groq(prompt, temperature, json_mode, timeout, tools, tool_choice):
     async with httpx.AsyncClient(timeout=timeout) as client:
         body = {
             "model": settings.LLM_MODEL,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": temperature,
-            "max_tokens": 512,
+            "max_tokens": 4096,
         }
-        if json_mode:
+        if json_mode and not tools: # Groq generally dislikes JSON mode combined with tool calling
             body["response_format"] = {"type": "json_object"}
+        if tools:
+            body["tools"] = tools
+            body["tool_choice"] = tool_choice
 
         resp = await client.post(
             "https://api.groq.com/openai/v1/chat/completions",
@@ -100,19 +112,26 @@ async def _ask_groq(prompt, temperature, json_mode, timeout):
             },
         )
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+        
+        msg = resp.json()["choices"][0]["message"]
+        if "tool_calls" in msg and msg["tool_calls"]:
+            return json.dumps(msg["tool_calls"])
+        return msg.get("content", "")
 
 
-async def _ask_openai(prompt, temperature, json_mode, timeout):
+async def _ask_openai(prompt, temperature, json_mode, timeout, tools, tool_choice):
     async with httpx.AsyncClient(timeout=timeout) as client:
         body = {
             "model": settings.LLM_MODEL,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": temperature,
-            "max_tokens": 512,
+            "max_tokens": 4096,
         }
-        if json_mode:
+        if json_mode and not tools:
             body["response_format"] = {"type": "json_object"}
+        if tools:
+            body["tools"] = tools
+            body["tool_choice"] = tool_choice
 
         resp = await client.post(
             "https://api.openai.com/v1/chat/completions",
@@ -123,7 +142,11 @@ async def _ask_openai(prompt, temperature, json_mode, timeout):
             },
         )
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+        
+        msg = resp.json()["choices"][0]["message"]
+        if "tool_calls" in msg and msg["tool_calls"]:
+            return json.dumps(msg["tool_calls"])
+        return msg.get("content", "")
 
 
 def parse_json(text: str) -> dict | None:

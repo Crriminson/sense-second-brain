@@ -25,6 +25,7 @@ VALID_INTENTS = {
     "pc_command",
     "general_query",
     "greeting",
+    "adaptive_agent",
 }
 
 VALID_PC_ACTIONS = {
@@ -59,6 +60,10 @@ def build_prompt(text: str, context: dict) -> str:
 
     if profile and "no profile" not in profile.lower():
         sections.append(f"\nUSER PROFILE:\n{profile}")
+
+    import datetime
+    now_iso = datetime.datetime.now().isoformat()
+    sections.append(f"\nCURRENT DATE & TIME:\nThe current local date and time is {now_iso}. Use this to calculate ISO timestamps for 'start_time' and 'end_time' parameters if creating calendar events today, tomorrow, etc.")
 
     if recent:
         sections.append(f"\nRECENT NOTES IN THIS WORKSPACE:\n{recent}")
@@ -181,22 +186,23 @@ end_meeting — User wants to STOP recording a meeting/session.
   "end the session" → end_meeting
   "finish meeting" → end_meeting
 
-pc_command — User wants to CONTROL their computer.
+pc_command — User wants to CONTROL their computer or access/modify smart integrations (Google Calendar).
   "open Chrome" → pc_command, action: open_app, target: "chrome"
   "open YouTube" → pc_command, action: open_url, target: "https://youtube.com"
   "close Discord" → pc_command, action: close_app, target: "discord"
-  "close settings" → pc_command, action: close_app, target: "settings"
+  "create a folder on my desktop named Project" → pc_command, action: run_shell_command, command: "mkdir %USERPROFILE%\\Desktop\\Project"
+  "delete the temp folder" → pc_command, action: run_shell_command, command: "rmdir /s /q temp"
   "play music" → pc_command, action: media_play
   "pause" → pc_command, action: media_pause
   "next song" → pc_command, action: media_next
   "volume up" → pc_command, action: volume_up
-  "set volume to 30" → pc_command, action: set_volume, level: 30
   "take a screenshot" → pc_command, action: screenshot
   "lock screen" → pc_command, action: lock_screen
-  "turn on focus mode" → pc_command, action: focus_mode
-  "dark mode" → pc_command, action: toggle_dark_mode
   "open VS Code" → pc_command, action: open_app, target: "vscode"
-  "open my documents folder" → pc_command, action: open_folder, target: "documents"
+  "What's on my calendar this month?" → pc_command, action: get_calendar_events, max_results: 10
+  "Schedule a meeting with John tomorrow at 4 PM" → pc_command, action: create_calendar_event, summary: "Meeting with John", start_time: "2026-03-14T16:00:00+05:30", end_time: "2026-03-14T17:00:00+05:30"
+  "add a deadline to my Google calendar for Friday" → pc_command, action: create_calendar_event, summary: "Deadline", start_time: "2026-03-13T09:00:00+05:30", end_time: "2026-03-13T10:00:00+05:30"
+  "add it to my Google calendar" → pc_command, action: create_calendar_event, summary: "Event from recent context"
 
 greeting — Conversational message. NOT a note. NOT a command.
   "hey" → greeting
@@ -210,6 +216,12 @@ greeting — Conversational message. NOT a note. NOT a command.
   "never mind" → greeting
   "cool" → greeting
   "ok" → greeting
+
+adaptive_agent — The user's request is complex, multi-step, or doesn't neatly fit the others.
+  "Summarize my day and email it to my boss" → adaptive_agent
+  "Convert all my notes into a poem" → adaptive_agent
+  "Look at my calendar and move everything 1 hour later" → adaptive_agent
+  KEY: Use this for requests that sound like they need a smart agent to plan and execute multiple steps.
 
 ═══ RULES ═══
 1. ONE intent per message. Pick the PRIMARY intent.
@@ -240,7 +252,8 @@ Respond with ONLY this JSON:
 }}
 
 If intent is pc_command, pc_actions format:
-[{{"action": "<action_name>", "params": {{"target": "...", "level": 50}}}}]"""
+[{{"action": "<action_name>", "params": {{"target": "...", "level": 50, "summary": "...", "start_time": "...", "end_time": "...", "command": "..."}}}}]
+Valid actions for pc_command include: open_app, close_app, open_url, open_folder, screenshot, set_volume, media_play, media_pause, media_next, media_prev, toggle_dark_mode, lock_screen, create_calendar_event, get_calendar_events, run_shell_command."""
 
 
 # ═══════════════════════════════════════
@@ -252,13 +265,77 @@ async def classify(text: str, context: dict = None) -> dict:
         context = {"active_workspace": "General"}
 
     prompt = build_prompt(text, context)
+    
+    # Import GET_DYNAMIC_TOOLS here to avoid circular imports if any, 
+    # but preferably at the top of the file
+    from system.dynamic_commands import GET_DYNAMIC_TOOLS
 
     raw = await provider.ask(
         prompt,
         temperature=0.1,
         json_mode=True,
         timeout=settings.TIMEOUT_INTENT,
+        tools=GET_DYNAMIC_TOOLS,
+        tool_choice="auto"
     )
+
+    # If the provider returns a string that looks like a JSON array of tool calls
+    if raw and raw.strip().startswith("[") and ("function" in raw or "name" in raw):
+        try:
+            import json
+            tool_calls = json.loads(raw)
+            if isinstance(tool_calls, list) and len(tool_calls) > 0:
+                # Synthesize a pc_command intent from the tool calls
+                actions = []
+                for tc in tool_calls:
+                    if tc.get("type") == "function" or "function" in tc:
+                        func = tc.get("function", tc)
+                        func_name = func.get("name")
+                        
+                        args_str = func.get("arguments", "{}")
+                        try:
+                            args = json.loads(args_str) if isinstance(args_str, str) else args_str
+                        except:
+                            args = {}
+                            
+                        if func_name == "run_shell_command":
+                            actions.append({
+                                "action": "run_shell_command",
+                                "params": args
+                            })
+                        elif func_name == "get_calendar_events":
+                            actions.append({
+                                "action": "get_calendar_events",
+                                "params": args
+                            })
+                        elif func_name == "create_calendar_event":
+                            actions.append({
+                                "action": "create_calendar_event",
+                                "params": args
+                            })
+                
+                if actions:
+                    act_name = actions[0]["action"]
+                    if act_name == "get_calendar_events":
+                        spoken = "Checking your calendar."
+                    elif act_name == "create_calendar_event":
+                        summary = actions[0]["params"].get("summary", "this event")
+                        spoken = f"Setting up {summary} in your calendar."
+                    else:
+                        spoken = "Running system command."
+                        
+                    return {
+                        "intent": "pc_command",
+                        "confidence": 0.9,
+                        "text": text,
+                        "query": None,
+                        "workspace": None,
+                        "tags": [],
+                        "spoken_response": spoken,
+                        "pc_actions": actions,
+                    }
+        except Exception as e:
+            print(f"[AI] Error parsing tool calls: {e}")
 
     parsed = provider.parse_json(raw)
 
@@ -334,7 +411,8 @@ def _validate(parsed: dict, original_text: str) -> dict:
             for action in raw_actions:
                 if isinstance(action, dict):
                     action_name = action.get("action", "")
-                    if action_name in VALID_PC_ACTIONS:
+                    # Allow run_shell_command, get_calendar_events, create_calendar_event from dynamic commands alongside static VALID_PC_ACTIONS
+                    if action_name in VALID_PC_ACTIONS or action_name in ("run_shell_command", "get_calendar_events", "create_calendar_event"):
                         params = action.get("params", {})
                         if not isinstance(params, dict):
                             params = {}
@@ -362,13 +440,13 @@ def _validate(parsed: dict, original_text: str) -> dict:
 
 def _fallback(text: str) -> dict:
     return {
-        "intent": "create_note",
+        "intent": "adaptive_agent",
         "confidence": 0.3,
         "text": text,
         "query": None,
         "workspace": None,
         "tags": [],
-        "spoken_response": "Saved that as a note just in case.",
+        "spoken_response": "I'm thinking about how to handle that.",
         "pc_actions": [],
     }
 
@@ -387,5 +465,6 @@ def _default_spoken(intent: str) -> str:
         "end_meeting": "Meeting ended.",
         "pc_command": "Done.",
         "greeting": "Hey! What's up?",
+        "adaptive_agent": "Working on it...",
     }
     return defaults.get(intent, "Done.")

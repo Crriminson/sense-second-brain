@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from ai import provider
 from config import settings
 from store.sql import notes as sql_notes, workspaces as sql_workspaces
+from ws_manager import manager
 
 router = APIRouter()
 
@@ -250,7 +251,9 @@ async def create_workspace(req: WorkspaceCreateRequest):
     name = req.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Workspace name is required")
-    return await sql_workspaces.create(name)
+    res = await sql_workspaces.create(name)
+    await manager.broadcast({"type": "update"})
+    return res
 
 
 @router.post("/workspaces/switch")
@@ -258,7 +261,100 @@ async def switch_workspace(req: WorkspaceSwitchRequest):
     name = req.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Workspace name is required")
-    return await sql_workspaces.switch(name)
+    res = await sql_workspaces.switch(name)
+    await manager.broadcast({"type": "update"})
+    return res
+
+
+class ContextUpdateRequest(BaseModel):
+    apps: list[str] = Field(default_factory=list)
+    urls: list[str] = Field(default_factory=list)
+
+@router.put("/workspaces/{workspace_id}/context")
+async def update_workspace_context(workspace_id: str, req: ContextUpdateRequest):
+    import json
+    context_str = json.dumps({"apps": req.apps, "urls": req.urls})
+    ok = await sql_workspaces.update_context(workspace_id, context_str)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    return {"status": "ok", "context": req.dict()}
+
+
+@router.post("/workspaces/{workspace_id}/structure")
+async def structure_workspace(workspace_id: str):
+    """
+    Gathers all raw thoughts/notes in a workspace and uses the LLM 
+    to output a single, beautifully structured Notion-like HTML document.
+    """
+    ws = await sql_workspaces.get_by_id(workspace_id)
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+        
+    all_notes = await sql_notes.list_all(workspace_id=workspace_id, limit=100)
+    if not all_notes:
+        raise HTTPException(status_code=400, detail="No notes to structure")
+        
+    # Compile raw context
+    raw_content = "\n\n---\n\n".join([n["raw_text"] for n in reversed(all_notes)])
+    
+    prompt = f"""You are an elite Chief of Staff and Knowledge Manager.
+I have a messy collection of raw notes, reminders, code snippets, and ideas from my workspace '{ws['name']}'.
+I want you to synthesize ALL of them into a single, beautifully structured master document.
+
+RAW NOTES:
+{raw_content}
+
+REQUIREMENTS:
+1. Output ONLY valid HTML markup that can be directly injected into a Prosemirror rich text editor.
+2. DO NOT wrap the output in ```html or include any markdown backticks. Just raw HTML elements.
+3. ALWAYS start the document with a single extremely clear <h1> element that acts as the title of this document based on the workspace theme.
+4. SYNTHESIZE the notes. Do not just list them. If 3 notes are about the same project, merge them into a cohesive paragraph or a single <h2> section.
+5. Identify cross-connections. If a task relates to a meeting note, group them together under an "Action Items" <h2>.
+6. Use <ul>, <ol>, <li> for tasks and lists, but keep them concise.
+7. Use <strong> and <em> to highlight key entities or deadlines.
+8. Use <blockquote> for profound insights or quotes.
+9. DO NOT lose any critical information from the raw notes, but discard completely useless filler words.
+"""
+    
+    structured_html = await provider.ask(prompt, temperature=0.3, json_mode=False)
+    
+    # Strip markdown block wrappers if the LLM hallucinated them
+    structured_html = structured_html.strip()
+    if structured_html.startswith("```html"):
+        structured_html = structured_html[7:]
+    if structured_html.startswith("```"):
+        structured_html = structured_html[3:]
+    if structured_html.endswith("```"):
+        structured_html = structured_html[:-3]
+    structured_html = structured_html.strip()
+    
+    # Extract the h1 for the summary
+    import re
+    h1_match = re.search(r'<h1>(.*?)</h1>', structured_html, re.IGNORECASE)
+    note_title = h1_match.group(1).strip() if h1_match else f"{ws['name']} Overview"
+    # Remove HTML tags from title just in case
+    note_title = re.sub(r'<[^>]+>', '', note_title)
+    
+    # Save the structured document as a new note in the workspace
+    structured_note = await sql_notes.save(
+        raw_text=structured_html,
+        summary=note_title,
+        tags=["structured", "overview"],
+        workspace_id=workspace_id,
+        source="system"
+    )
+    
+    from store import vectors as vector_store
+    vector_store.add(
+        note_id=structured_note["id"],
+        text=structured_note["raw_text"],
+        workspace=ws["name"],
+        tags=["structured", "overview"],
+    )
+    
+    await manager.broadcast({"type": "update"})
+    
+    return {"status": "ok", "note": structured_note}
 
 
 @router.get("/notes")
@@ -279,13 +375,15 @@ async def create_note(req: NoteCreateRequest):
         raise HTTPException(status_code=400, detail="raw_text is required")
 
     try:
-        return await sql_notes.save(
+        res = await sql_notes.save(
             raw_text=raw_text,
             tags=req.tags,
             summary=req.summary,
             workspace_id=req.workspace_id,
             source=req.source,
         )
+        await manager.broadcast({"type": "update"})
+        return res
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -300,6 +398,7 @@ async def update_note(note_id: str, req: NoteUpdateRequest):
     )
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
+    await manager.broadcast({"type": "update"})
     return note
 
 
@@ -308,6 +407,7 @@ async def delete_note(note_id: str):
     ok = await sql_notes.delete(note_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Note not found")
+    await manager.broadcast({"type": "update"})
     return {"deleted": True}
 
 
@@ -318,6 +418,8 @@ async def clear_notes(workspace_id: str | None = Query(default=None)):
     for note in notes:
         if await sql_notes.delete(note["id"]):
             deleted += 1
+    if deleted > 0:
+        await manager.broadcast({"type": "update"})
     return {"deleted": deleted}
 
 

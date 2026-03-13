@@ -1,7 +1,9 @@
 # config.py
 import os
+from dotenv import load_dotenv
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 DB_PATH = os.getenv("DB_PATH", os.path.join(BASE_DIR, "second_brain.db"))
 CHROMA_PATH = os.getenv("CHROMA_PATH", os.path.join(BASE_DIR, "chroma_data"))
@@ -11,6 +13,8 @@ LLM_URL = os.getenv("LLM_URL", "http://localhost:11434")
 LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5:7b")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "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")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 TIMEOUT_INTENT = 60
 TIMEOUT_ANSWER = 60
 TIMEOUT_RELATION = 60
@@ -33,6 +37,8 @@ class Settings:
         self.LLM_MODEL = LLM_MODEL
         self.GROQ_API_KEY = GROQ_API_KEY
         self.OPENAI_API_KEY = OPENAI_API_KEY
+        self.GOOGLE_CLIENT_ID = GOOGLE_CLIENT_ID
+        self.GOOGLE_CLIENT_SECRET = GOOGLE_CLIENT_SECRET
         self.TIMEOUT_INTENT = TIMEOUT_INTENT
         self.TIMEOUT_ANSWER = TIMEOUT_ANSWER
         self.TIMEOUT_RELATION = TIMEOUT_RELATION

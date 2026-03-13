@@ -443,6 +443,25 @@ async def _handle_switch_workspace(classified: dict, original_text: str, context
         action = "Switched to" if note_count > 0 else "Created and switched to"
         base = f"{action} {ws['name']}. {note_count} notes here."
 
+    # Process Workspace Auto-Launch Context
+    try:
+        if "context_data" in ws and ws["context_data"]:
+            import json
+            context_data = json.loads(ws["context_data"])
+            
+            apps_to_open = context_data.get("apps", [])
+            for app in apps_to_open:
+                sys_commands.execute("open_app", {"target": app})
+                
+            urls_to_open = context_data.get("urls", [])
+            for url in urls_to_open:
+                sys_commands.execute("open_url", {"target": url})
+                
+            if apps_to_open or urls_to_open:
+                context_summary += f" Launched {len(apps_to_open)} apps and {len(urls_to_open)} tabs."
+    except Exception as e:
+        print(f"[ENGINE] Failed to load workspace context: {e}")
+
     classified["spoken_response"] = base + context_summary
 
     return {"workspace": ws}
@@ -549,13 +568,66 @@ async def _handle_end_meeting(classified: dict, original_text: str, context: dic
 async def _handle_pc_command(classified: dict, original_text: str, context: dict) -> dict:
     actions = classified.get("pc_actions", [])
     results = []
+    calendar_events = None
 
     for action in actions:
         action_name = action.get("action", "")
         params = action.get("params", {})
-        result = sys_commands.execute(action_name, params)
-        results.append({"action": action_name, "result": result})
-        print(f"[ENGINE] PC Command: {action_name} → {result}")
+        
+        if action_name == "run_shell_command":
+            from system.dynamic_commands import run_shell_command
+            cmd = params.get("command", "")
+            result = run_shell_command(cmd)
+            results.append({"action": action_name, "result": result})
+            print(f"[ENGINE] Dynamic PC Command: {cmd} → {result}")
+        elif action_name == "get_calendar_events":
+            from integrations.google_api import get_upcoming_calendar_events
+            max_results = params.get("max_results", 5)
+            # Need to await since it's an async function
+            events = await get_upcoming_calendar_events(max_results)
+            results.append({"action": action_name, "result": {"events": events}})
+            calendar_events = events
+            print(f"[ENGINE] Google API Command: get_calendar_events → {len(events)} events")
+        elif action_name == "create_calendar_event":
+            from integrations.google_api import create_calendar_event
+            summary = params.get("summary", "New Event")
+            start_time = params.get("start_time")
+            end_time = params.get("end_time")
+            desc = params.get("description", "")
+            if start_time and end_time:
+                res = await create_calendar_event(summary, start_time, end_time, desc)
+                results.append({"action": action_name, "result": res})
+                print(f"[ENGINE] Google API Command: create_calendar_event → {res.get('status')}")
+            else:
+                results.append({"action": action_name, "result": {"error": "Missing start or end time"}})
+        else:
+            result = sys_commands.execute(action_name, params)
+            results.append({"action": action_name, "result": result})
+            print(f"[ENGINE] Static PC Command: {action_name} → {result}")
+
+    # Combine outputs if needed
+    if calendar_events is not None:
+        if not calendar_events:
+            classified["spoken_response"] = "You have no upcoming events on your calendar."
+        else:
+            # Simple summarization for speech
+            count = len(calendar_events)
+            first_event = calendar_events[0].get("summary", "Untitled")
+            classified["spoken_response"] = f"You have {count} upcoming events. The next one is {first_event}."
+    else:
+        # Check if we created an event
+        created = next((r for r in results if r["action"] == "create_calendar_event"), None)
+        if created:
+            if created["result"].get("status") == "success":
+                 classified["spoken_response"] = f"Created {created['result'].get('summary')} in your calendar."
+            else:
+                 classified["spoken_response"] = f"Failed to create event: {created['result'].get('message', 'Unknown error')}."
+        else:
+            outputs = [r.get("result", {}).get("output", "") for r in results if isinstance(r.get("result"), dict) and r.get("result", {}).get("output")]
+            if outputs:
+                summary = " ".join(outputs)[:80]
+                if summary:
+                     classified["spoken_response"] = f"Command executed. Output preview: {summary}"
 
     return {"pc_results": results}
 
@@ -699,6 +771,72 @@ def get_buffer_status() -> dict:
     }
 
 
+async def _handle_adaptive_agent(classified: dict, original_text: str, context: dict) -> dict:
+    from ai import provider
+    from system.dynamic_commands import GET_DYNAMIC_TOOLS
+    import json
+
+    prompt = f"""You are the Adaptive Agent for Sense, helping the user with complex, multi-step tasks.
+You have access to their full workspace context and PC tools.
+
+User Request: {original_text}
+
+Context:
+- Active Workspace: {context.get('active_workspace')}
+- Recent Notes: {context.get('recent_notes')}
+- Profile: {context.get('user_profile')}
+
+Fulfill the user's request. You may call tools if necessary (e.g. to run shell commands or calendar events). If you don't need tools, just provide a helpful, conversational response. Please be concise."""
+
+    try:
+        raw = await provider.ask(
+            prompt,
+            temperature=0.3,
+            json_mode=False,
+            tools=GET_DYNAMIC_TOOLS,
+            tool_choice="auto"
+        )
+        
+        # Check if the LLM output tool calls
+        if raw and raw.strip().startswith("[") and ("function" in raw or "name" in raw):
+            try:
+                tool_calls = json.loads(raw)
+                results = []
+                for tc in tool_calls:
+                    if "function" in tc:
+                        func = tc.get("function")
+                        func_name = func.get("name")
+                        args = json.loads(func.get("arguments", "{}"))
+                        
+                        if func_name == "run_shell_command":
+                            from system.dynamic_commands import run_shell_command
+                            res = run_shell_command(args.get("command", ""))
+                            results.append(f"Ran command. Output: {res}")
+                        elif func_name == "create_calendar_event":
+                            from integrations.google_api import create_calendar_event
+                            res = await create_calendar_event(
+                                args.get("summary", ""),
+                                args.get("start_time", ""),
+                                args.get("end_time", ""),
+                                args.get("description", "")
+                            )
+                            results.append(f"Created event: {res}")
+                            
+                classified["spoken_response"] = "I executed that complex task for you."
+                return {"agent_results": results}
+            except Exception as parsed_e:
+                print(f"[ENGINE] Tool parsing error in adaptive agent: {parsed_e}")
+                
+        # Just return the text response
+        classified["spoken_response"] = raw[:200]
+        return {"agent_response": raw}
+        
+    except Exception as e:
+        print(f"[ENGINE] Adaptive Agent failed: {e}")
+        classified["spoken_response"] = "I tried to figure that out, but ran into an issue."
+        return {"error": str(e)}
+
+
 # ═══════════════════════════════════════════════════
 #  HANDLER REGISTRY
 # ═══════════════════════════════════════════════════
@@ -716,4 +854,5 @@ INTENT_HANDLERS = {
     "start_meeting": _handle_start_meeting,
     "end_meeting": _handle_end_meeting,
     "pc_command": _handle_pc_command,
+    "adaptive_agent": _handle_adaptive_agent,
 }

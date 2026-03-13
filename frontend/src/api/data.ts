@@ -72,6 +72,22 @@ export async function createNote(input: {
   });
 }
 
+export async function updateNoteClient(
+  id: string,
+  input: { raw_text?: string; summary?: string; tags?: string[] }
+): Promise<BackendNote> {
+  return request<BackendNote>(`/notes/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteNoteClient(id: string): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>(`/notes/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
 export async function deleteAllNotes(workspaceId?: string): Promise<{ deleted: number }> {
   const qs = workspaceId ? `?workspace_id=${encodeURIComponent(workspaceId)}` : "";
   return request<{ deleted: number }>(`/notes${qs}`, { method: "DELETE" });
@@ -83,4 +99,24 @@ export async function fetchWorkspaces(): Promise<BackendWorkspace[]> {
 
 export async function fetchActiveWorkspace(): Promise<BackendWorkspace | null> {
   return request<BackendWorkspace | null>("/workspaces/active");
+}
+
+export async function createWorkspaceClient(name: string): Promise<BackendWorkspace> {
+  return request<BackendWorkspace>("/workspaces", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function switchWorkspaceClient(name: string): Promise<BackendWorkspace> {
+  return request<BackendWorkspace>("/workspaces/switch", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function structureWorkspaceClient(workspaceId: string): Promise<BackendNote> {
+  return request<BackendNote>(`/workspaces/${encodeURIComponent(workspaceId)}/structure`, {
+    method: "POST",
+  }).then((res: any) => res.note);
 }

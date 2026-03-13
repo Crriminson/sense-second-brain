@@ -7,7 +7,10 @@ import uvicorn
 from network import print_connection_qr
 from interfaces.sockets import router as sockets_router
 from interfaces.rest import router as rest_router
+from interfaces.auth import router as auth_router
 from store.sql.connection import init_db
+from starlette.middleware.sessions import SessionMiddleware
+import secrets
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -32,9 +35,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.add_middleware(SessionMiddleware, secret_key=secrets.token_urlsafe(32))
+
 # Add the websocket routes to the app
 app.include_router(sockets_router)
 app.include_router(rest_router, prefix="/api")
+app.include_router(auth_router, prefix="/auth")
 
 # Basic health check
 @app.get("/")
