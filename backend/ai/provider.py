@@ -90,33 +90,54 @@ async def _ask_ollama(prompt, temperature, json_mode, timeout, tools):
 
 
 async def _ask_groq(prompt, temperature, json_mode, timeout, tools, tool_choice):
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        body = {
-            "model": settings.LLM_MODEL,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": temperature,
-            "max_tokens": 4096,
-        }
-        if json_mode and not tools: # Groq generally dislikes JSON mode combined with tool calling
-            body["response_format"] = {"type": "json_object"}
-        if tools:
-            body["tools"] = tools
-            body["tool_choice"] = tool_choice
+    max_retries = 2
+    for attempt in range(max_retries + 1):
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                body = {
+                    "model": settings.LLM_MODEL,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": temperature,
+                    "max_tokens": 4096,
+                }
+                if json_mode and not tools:
+                    body["response_format"] = {"type": "json_object"}
+                if tools:
+                    body["tools"] = tools
+                    body["tool_choice"] = tool_choice
 
-        resp = await client.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            json=body,
-            headers={
-                "Authorization": f"Bearer {settings.GROQ_API_KEY}",
-                "Content-Type": "application/json",
-            },
-        )
-        resp.raise_for_status()
-        
-        msg = resp.json()["choices"][0]["message"]
-        if "tool_calls" in msg and msg["tool_calls"]:
-            return json.dumps(msg["tool_calls"])
-        return msg.get("content", "")
+                resp = await client.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    json=body,
+                    headers={
+                        "Authorization": f"Bearer {settings.GROQ_API_KEY}",
+                        "Content-Type": "application/json",
+                    },
+                )
+
+                # Retry on 429 with exponential backoff
+                if resp.status_code == 429 and attempt < max_retries:
+                    wait = 2 ** (attempt + 1)  # 2s, 4s
+                    print(f"[AI] Groq rate limited, retrying in {wait}s (attempt {attempt + 1}/{max_retries})...")
+                    await asyncio.sleep(wait)
+                    continue
+
+                resp.raise_for_status()
+                msg = resp.json()["choices"][0]["message"]
+                if "tool_calls" in msg and msg["tool_calls"]:
+                    return json.dumps(msg["tool_calls"])
+                return msg.get("content", "")
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429 and attempt < max_retries:
+                wait = 2 ** (attempt + 1)
+                print(f"[AI] Groq rate limited, retrying in {wait}s (attempt {attempt + 1}/{max_retries})...")
+                await asyncio.sleep(wait)
+                continue
+            print(f"[AI] Groq error: {e.response.status_code} {e.response.text[:200]}")
+            return ""
+    return ""
+
 
 
 async def _ask_openai(prompt, temperature, json_mode, timeout, tools, tool_choice):

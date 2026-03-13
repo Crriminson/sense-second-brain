@@ -87,3 +87,13 @@ async def auth_google_status():
 async def auth_google_logout():
     await delete_credentials()
     return {"status": "ok"}
+
+@router.get("/google/revoke")
+async def auth_google_revoke():
+    """
+    Force-clear saved credentials so the user must re-login.
+    Use this when scopes have changed and the old token is insufficient.
+    """
+    await delete_credentials()
+    return RedirectResponse(url="/auth/google/login")
+

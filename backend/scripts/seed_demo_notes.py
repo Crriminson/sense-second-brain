@@ -117,13 +117,13 @@ async def main():
             if await _note_exists(ws["id"], note_text):
                 continue
             note = await notes.save(raw_text=note_text, workspace_id=ws["id"])
-            vector_store.add(
-                note_id=note["id"],
-                text=note["raw_text"],
-                workspace=ws["name"],
-                tags=[],
-            )
-            compute_edges.delay(note["raw_text"], note["id"])
+            # vector_store.add(
+            #     note_id=note["id"],
+            #     text=note["raw_text"],
+            #     workspace=ws["name"],
+            #     tags=[],
+            # )
+            # compute_edges.delay(note["raw_text"], note["id"])
             inserted += 1
 
         print(f"[seed] Inserted {inserted} new notes into '{ws_name}'")

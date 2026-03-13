@@ -439,16 +439,52 @@ def _validate(parsed: dict, original_text: str) -> dict:
 
 
 def _fallback(text: str) -> dict:
+    """Local keyword fallback — no LLM call needed. Used when the LLM is unavailable or rate-limited."""
+    t = text.lower().strip()
+
+    # Greeetings
+    if any(w in t for w in ["hello", "hi", "hey", "good morning", "good evening", "good afternoon",
+                              "thanks", "thank you", "bye", "goodbye", "what can you do", "help"]):
+        return {
+            "intent": "greeting",
+            "confidence": 0.7,
+            "text": text, "query": None, "workspace": None, "tags": [],
+            "spoken_response": "Hey! What's up?",
+            "pc_actions": [],
+        }
+
+    # Deletions
+    if any(w in t for w in ["delete", "remove", "scratch that", "undo", "never mind", "erase"]):
+        return {
+            "intent": "delete_note",
+            "confidence": 0.7,
+            "text": text, "query": None, "workspace": None, "tags": [],
+            "spoken_response": "Deleted.",
+            "pc_actions": [],
+        }
+
+    # Queries
+    if any(w in t for w in ["what did i", "find", "search", "show me", "recall", "what was"]):
+        return {
+            "intent": "query_notes",
+            "confidence": 0.6,
+            "text": None, "query": text, "workspace": None, "tags": [],
+            "spoken_response": "Let me check your notes.",
+            "pc_actions": [],
+        }
+
+    # Default: save it as a note — never lose data
     return {
-        "intent": "adaptive_agent",
-        "confidence": 0.3,
+        "intent": "create_note",
+        "confidence": 0.5,
         "text": text,
         "query": None,
         "workspace": None,
         "tags": [],
-        "spoken_response": "I'm thinking about how to handle that.",
+        "spoken_response": "Got it, saved.",
         "pc_actions": [],
     }
+
 
 
 def _default_spoken(intent: str) -> str:
