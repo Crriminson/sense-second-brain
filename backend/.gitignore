@@ -21,3 +21,10 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local data (personal notes, credentials, vector store)
+*.db
+*.sqlite3
+backend/chroma_data/
+*.log
+server_log.txt
