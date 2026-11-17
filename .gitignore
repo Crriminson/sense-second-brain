@@ -1,0 +1,7 @@
+
+# Local data (personal notes, credentials, vector store)
+*.db
+*.sqlite3
+chroma_data/
+*.log
+server_log.txt
